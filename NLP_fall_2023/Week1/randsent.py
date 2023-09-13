@@ -111,7 +111,7 @@ class Grammar:
                 parts=line.strip().split('\t')
                 # print(f"Debugging: parts = {parts}")
                 # print(ord(parts[0][-1]))
-                print(f"Debugging: parts = {parts}, length = {len(parts)}")  # Debugging line
+                # print(f"Debugging: parts = {parts}, length = {len(parts)}")  # Debugging line
 
 
                 weight, lhs, rhs = parts 

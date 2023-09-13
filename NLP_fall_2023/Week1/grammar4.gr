@@ -22,6 +22,7 @@
 1	ROOT	S .
 1	ROOT	S !
 1	ROOT	is it true that S ?    
+1	ROOT	YesNoQ
  # mixing terminals and nonterminals is ok.
 
 # The basic grammar rules.  Here's what the abbreviations stand for:
@@ -153,3 +154,19 @@
 1	Prep	on
 0.5	Prep	under
 1	Prep	in
+
+
+#New terminal symbols 
+
+1	Aux	did
+1	Aux	will
+
+
+#Yes-No questions
+1	YesNoQ	Aux NP VP_base ?
+
+#possibly change eat to ate
+1	VP_base	eat
+1	VP_base	want
+
+
