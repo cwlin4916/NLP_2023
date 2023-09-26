@@ -105,7 +105,7 @@ class Grammar:
         
         with open(grammar_file, 'r') as f: 
             for line in f:
-                print(f'Reading line: {line}')  # Debugging line
+                # print(f'Reading line: {line}')  # Debugging line
                 if line.strip() == '' or line.strip().startswith('#'):
                     continue
                 parts=line.strip().split('\t')
