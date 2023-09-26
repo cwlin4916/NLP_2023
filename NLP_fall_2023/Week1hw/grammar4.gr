@@ -1,0 +1,172 @@
+# Symbols in the grammar are case-sensitive.
+# 
+# This grammar uses a convention that
+#    - terminals are usually lowercase  (president)
+#    - preterminals are capitalized     (Noun)
+#    - other nonterminals are all-caps  (NP)
+# 
+# This convention just makes grammars more readable to humans.  Thus:
+#
+#    - When *you* are writing grammars in questions 3 and 6, you should 
+#      follow this convention unless you have a good reason not to.  
+#
+#    - But your *program* should still work with grammars that don't
+#      follow this convention.  So how can your program reliably tell
+#      the difference between terminal and nonterminal symbols?  If
+#      there is at least one rule for rewriting a symbol, then that
+#      symbol is a nonterminal and should be rewritten.
+#######################
+
+# Rules for creating full sentences.
+
+1	ROOT	S .
+1	ROOT	S !
+1	ROOT	is it true that S ?    
+1	ROOT	YesNoQ
+ # mixing terminals and nonterminals is ok.
+
+# The basic grammar rules.  Here's what the abbreviations stand for:
+#    S  = sentence
+#    NP = noun phrase
+#    VP = verb phrase
+#    PP = prepositional phrase
+#    Det = determiner (sometimes called "article")
+#    Prep = preposition
+#    Adj = adjective
+
+
+#the president thought that a sandwich sighed, 
+0.01	S	NP thought that S
+1	S	NP VP
+
+# Sally and the president wanted and ate a sandwich
+0.1	VP	VP and VP
+
+0.2	V_trans	V_trans and V_trans
+#adding in transitive and intransitive
+0.5	VP	V_trans NP
+0.5	VP	V_intra
+1	VP	V_trans NP
+
+
+# it perplexed the president that a sandwich ate Sally,"
+0.1	S	Expletive VP_complex
+0.1	S	ThatS V_that NP
+0.2	ThatS	that S
+1	VP_complex	V_that NP ThatS
+1	Expletive	it
+
+#examples of V_that
+1	V_that	perplexed
+1	V_that	told
+1	V_that	surprised
+1	V_that	excited
+
+
+# the very very very perplexed president ate a sandwich
+1	Adj	very Adj
+# 1	VP	Adv VP
+
+
+#the president worked on every proposal on the desk .
+1	VP	V_transp PP
+1	V_transp	worked
+
+
+1	NP	Det Noun
+1	NP	Det_a ConsoNoun
+0.2	NP	Det_a Adj Noun
+1	NP	Det_an VowelNoun
+
+0.01	NP	Det_a Adj Noun
+0.5	NP	ProperNoun
+0.1	NP	NP PP
+0.1	NP	NP and NP
+1	Noun	Adj Noun
+
+1	PP	Prep NP
+
+
+# Vocabulary.  Your program can see that "ate" is a terminal
+# symbol because there exists no rule for rewriting it.
+# Any symbol that can rewrite as a terminal (or a string of 
+# terminals, like "chief of staff") is called a "preterminal."  Notice 
+# that a preterminal is a special kind of nonterminal.
+
+1	V_trans	ate
+1	V_trans	wanted
+1	V_trans	kissed
+1	V_trans	understood
+0.2	V_trans	pickled
+
+#Add new verbs like "sighed" and "thought", but does this work? 
+0.5	V_intra	sighed
+0.5	V_intra	thought
+
+
+1	Det	the
+1	Det_a	a
+1	Det_an	an
+0.3	Det	every
+
+0.01	ProperNoun	Sally
+0.01	Noun	cat
+0.5	Noun	president
+0.5	Noun	sandwich
+0.1	Noun	pickle
+0.5	Noun	chief of staff
+0.5	Noun	floor
+0.5	Noun	apple
+0.5	Noun	elderflower
+#new words the president worked on every proposal on the desk,"
+0.5	Noun	desk
+0.5	Noun	proposal
+0.5	Noun	instagram
+0.5	Noun	overleaf
+0.5	Noun	assignment
+0.5	Noun	university
+
+
+
+#dumb way to do this, but literally have a copy of Noun list and do conso and vowel noun
+0.5	ConsoNoun	president
+0.5	ConsoNoun	sandwich
+0.1	ConsoNoun	pickle
+0.5	ConsoNoun	chief of staff
+0.5	ConsoNoun	floor
+0.5	VowelNoun	apple
+0.5	VowelNoun	elderflower
+#new words the president worked on every proposal on the desk,"
+0.5	ConsoNoun	desk
+0.5	ConsoNoun	proposal
+0.5	VowelNoun	instagram
+0.5	VowelNoun	overleaf
+0.5	VowelNoun	assignment
+0.5	VowelNoun./	university
+
+1	Adj	fine
+1	Adj	delicious
+0.5	Adj	perplexed
+0.1	Adj	pickled
+0.2	Adj	ambivalent
+
+1	Prep	with
+1	Prep	on
+0.5	Prep	under
+1	Prep	in
+
+
+#New terminal symbols 
+
+1	Aux	did
+1	Aux	will
+
+
+#Yes-No questions
+1	YesNoQ	Aux NP VP_base ?
+
+#possibly change eat to ate
+1	VP_base	eat
+1	VP_base	want
+
+
