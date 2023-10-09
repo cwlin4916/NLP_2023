@@ -187,11 +187,11 @@ class Lexicon:
         #convert the tensor to a list of indices
         sorted_indices_10=sorted_indices[1:11].tolist() #the index [1:11] is used to exclude the first element, which is the index of the given word itself
         
-        first_few_itmes=list(self.index_to_word.keys())[:10] #the first 10 items in the index_to_word dictionary 
-        print(first_few_itmes) 
-        print(sorted_indices[1:11])
+        first_few_itmes=list(self.index_to_word.keys()) #the first 10 items in the index_to_word dictionary 
+        #print(first_few_itmes) 
+        #print(sorted_indices[1:11])
 
-        similar_words = [self.index_to_word[idx] for idx in sorted_indices_10[1:11]] 
+        similar_words = [self.index_to_word[idx] for idx in sorted_indices_10] 
         # # sort indices by similarity to the given word
         # The star above forces you to use `plus` and `minus` only
         # as named arguments. This helps avoid mixups or readability
