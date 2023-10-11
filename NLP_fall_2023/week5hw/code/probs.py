@@ -15,6 +15,8 @@ from jaxtyping import Float
 from typeguard import typechecked
 from typing import Counter
 from collections import Counter
+from SGD_convergent import ConvergentSGD #for 7d 
+
 
 log = logging.getLogger(Path(__file__).stem)  # For usage, see findsim.py in earlier assignment.
 
@@ -267,6 +269,7 @@ class BackoffAddLambdaLanguageModel(AddLambdaLanguageModel):
 def load_lexicon(lexicon_file_path: str) -> dict:
     embeddings = {}
     with open(lexicon_file_path, 'r') as f:
+        next(f) # skip the first line
         for line in f:
             parts = line.strip().split()  # split by space
             word = parts[0]
@@ -284,19 +287,16 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         self.l2: float = l2
         self.epochs: int = epochs
 
-        self.embeddings = {word: torch.tensor(vector) for word, vector in load_lexicon(str(lexicon_file)).items()}
+        all_embeddings = load_lexicon(str(lexicon_file)) #load the lexicon file 
+        self.embeddings = {word: torch.tensor(vector) for word, vector in all_embeddings.items() if word in vocab} 
+        
+         # Add the "OOL" vector if it exists in all_embeddings
+        if "OOL" in all_embeddings:
+            self.embeddings["OOL"] = torch.tensor(all_embeddings["OOL"])
         some_word = list(self.embeddings.keys())[1] #next__iter__ returns the next item from the iterator
         # print(f"Debug: the value of some word is {self.embeddings[some_word]}")  # Debugging line
         
-        self.dim = self.embeddings[some_word].size(0)
-        # We wrap the following matrices in nn.Parameter objects.
-        # This lets PyTorch know that these are parameters of the model
-        # that should be listed in self.parameters() and will be
-        # updated during training.
-        # We can also store other tensors in the model class,
-        # like constant coefficients that shouldn't be altered by
-        # training, but those wouldn't use nn.Parameter.
-        
+        self.dim = self.embeddings[some_word].size(0) #dimension of parameter matrices
         self.X = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
         self.Y = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
               
@@ -362,52 +362,38 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         return logit
 
     def train(self, file: Path):    # type: ignore
-        
-        ### Technically this method shouldn't be called `train`,
-        ### because this means it overrides not only `LanguageModel.train` (as desired)
-        ### but also `nn.Module.train` (which has a different type). 
-        ### However, we won't be trying to use the latter method.
-        ### The `type: ignore` comment above tells the type checker to ignore this inconsistency.
-        
-        
-        # Optimization hyperparameters.
-        gamma0 = 0.01  # initial learning rate, this is from 7b) 
-
-        # This is why we needed the nn.Parameter above.
-        # The optimizer needs to know the list of parameters
-        # it should be trying to update.
+         ### it overrides not only `LanguageModel.train` (as desired) but also `nn.Module.train` (which has a different type). 
+         ### The `type: ignore` comment above tells the type checker to ignore this inconsistency.
+        gamma0 = 1e-2  # initial learning rate, this is from 7b) 
         optimizer = optim.SGD(self.parameters(), lr=gamma0)
-
-        # Initialize the parameter matrices to be full of zeros.
         nn.init.zeros_(self.X)   # type: ignore
         nn.init.zeros_(self.Y)   # type: ignore
-
         N = num_tokens(file)
         log.info("Start optimizing on {N} training tokens...")
-        
         t=0 #initialize the number of updates so far. 
         for e in range(self.epochs):
             #loop over traigrams in the training data
             F_epoch = 0.0
-
             for i, trigram in enumerate(tqdm(read_trigrams(file, self.vocab), total=N)): # To get the training examples, you can use the `read_trigrams` function
                 gamma = gamma0/(1+gamma0*2*self.l2*t/N) #current step size
                 x,y,z=trigram
                 #compute the forward 
-                log_prob = self.log_prob_tensor(x,y,z)  #need tensor for bookkeeping instead of float 
-                Fi_theta = log_prob - self.l2*(self.X.norm()+self.Y.norm())#For each successive training example i, compute the stochastic
-                Fi_theta = - Fi_theta # we want to maximize Fi_theta, but SGD minimizes, so we negate it
+                Fi = self.log_prob_tensor(x,y,z)  #need tensor for bookkeeping instead of float 
+                Fi += - self.l2*(self.X.norm()+self.Y.norm())#For each successive training example i, compute the stochastic
+                 # we want to maximize Fi_theta, but SGD minimizes, so we negate it
                 #compuate thegradients by back propagation 
-                Fi_theta.backward()  
+                (-Fi).backward()  
                 
                 optimizer.step()  #, update the parameters in the direction of the gradient via step method
                 optimizer.zero_grad() 
                 
                 t+=1 #increment the number of updates so far 
-                F_epoch += Fi_theta.item()
+                F_epoch += Fi.item()
             log.info("done optimizing.")
             print(f"epoch {e+1}: F = {F_epoch/N}") #print the value of F after each epoch
             # print("Model parameters:", self.X, self.Y)
+            print(f"Finished training on {N} tokens")
+
 
             
       
