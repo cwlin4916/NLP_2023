@@ -292,8 +292,7 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         
         self.embeddings["OOL"] = torch.tensor(load_lexicon(str(lexicon_file))["OOL"])
         self.vocab_values_stack = torch.stack([self.get_embedding(word) for word in self.vocab_dict])  # New line: store the embeddings for all "z"
-
-         # Add the "OOL" vector if it exists in all_embeddings
+        #note this has the same dimension as vocab_dict, even if vocab_dict has OOV, it is given value of OOL. 
         
         some_word = list(self.embeddings.keys())[1] #next__iter__ returns the next item from the iterator
     
@@ -313,10 +312,6 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         # Get embeddings for x and y
         x_emb = self.get_embedding(x)
         y_emb = self.get_embedding(y)
-        #maybe can create this as a 
-        # Create a stack of all z word embeddings from vocab
-        
-        # Calculate logits
         z_vecs=self.vocab_values_stack
         logit_vec = (x_emb @ self.X @ z_vecs.T) + (y_emb @ self.Y @ z_vecs.T)
         
@@ -329,10 +324,9 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         Compute the normalization constant Z(xy) using vectorized operations for speedup.
         x_emb and y_emb are the embeddings for words x and y.
         """
-
-        E = self.vocab_values_stack # Stack all word vectors to create the matrix E
-        part1 = x_emb @ self.X @ E.T  # Compute x^T X E using matrix-matrix multiplication
-        part2 = y_emb @ self.Y @ E.T  # Compute y^T Y E using matrix-matrix multiplication
+        E = self.vocab_values_stack # 
+        part1 = x_emb @ self.X @ E.T  
+        part2 = y_emb @ self.Y @ E.T  
         
         Z_xy = torch.exp(part1 + part2).sum()  # Take the exponent and sum up
         return Z_xy
@@ -361,22 +355,26 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
     def train(self, file: Path):    # type: ignore
          ### it overrides not only `LanguageModel.train` (as desired) but also `nn.Module.train` (which has a different type). 
          ### The `type: ignore` comment above tells the type checker to ignore this inconsistency.
+         
         gamma0 = 1e-2  # initial learning rate, this is from 7b) 
+        
         optimizer = optim.SGD(self.parameters(), lr=gamma0)
         nn.init.zeros_(self.X)   # type: ignore
         nn.init.zeros_(self.Y)   # type: ignore
         N = num_tokens(file)
         log.info("Start optimizing on {N} training tokens...")
         t=0 #initialize the number of updates so far. 
+        C=self.l2
+        
         for e in range(self.epochs):
             #loop over traigrams in the training data
             F_epoch = 0.0
             for i, trigram in enumerate(tqdm(read_trigrams(file, self.vocab), total=N)): # To get the training examples, you can use the `read_trigrams` function
-                gamma = gamma0/(1+gamma0*2*self.l2*t/N) #current step size
+                gamma = gamma0/(1+gamma0*2*C*t/N) #current step size
                 x,y,z=trigram
                 #compute the forward 
                 Fi = self.log_prob_tensor(x,y,z)  #need tensor for bookkeeping instead of float 
-                Fi += - self.l2*(self.X.norm()+self.Y.norm())#For each successive training example i, compute the stochastic
+                Fi += - (C/N) * (torch.sum(self.X**2) + torch.sum(self.Y**2))#For each successive training example i, compute the stochastic
                  # we want to maximize Fi_theta, but SGD minimizes, so we negate it
                 #compuate thegradients by back propagation 
                 (-Fi).backward()  
