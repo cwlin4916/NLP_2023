@@ -52,6 +52,8 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="Training corpus (as a single file)"
     )
+    
+    # -- measn optional arguments 
     parser.add_argument(
         "--output",
         type=Path,

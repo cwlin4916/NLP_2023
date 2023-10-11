@@ -1,28 +1,11 @@
 #!/usr/bin/env python3
-# CS465 at Johns Hopkins University.
-# Module to estimate n-gram probabilities.
-
-# Updated by Jason Baldridge <jbaldrid@mail.utexas.edu> for use in NLP
-# course at UT Austin. (9/9/2008)
-
-# Modified by Mozhi Zhang <mzhang29@jhu.edu> to add the new log linear model
-# with word embeddings.  (2/17/2016)
-
-# Refactored by Arya McCarthy <xkcd@jhu.edu> because inheritance is cool
-# and so is separating business logic from other stuff.  (9/19/2019)
-
-# Patched by Arya McCarthy <arya@jhu.edu> to fix a counting issue that
-# evidently was known pre-2016 but then stopped being handled?
-
-# Further refactoring by Jason Eisner <jason@cs.jhu.edu> 
-# and Brian Lu <zlu39@jhu.edu>.  (9/26/2021)
 
 from __future__ import annotations
 
 import logging
 import math
 import sys
-
+from tqdm import tqdm 
 from pathlib import Path
 
 import torch
@@ -61,24 +44,6 @@ OOL: Wordtype = "OOL"  # special word type whose embedding is used for OOV and a
 def read_tokens(file: Path, vocab: Optional[Vocab] = None) -> Iterable[Wordtype]:
     """Iterator over the tokens in file.  Tokens are whitespace-delimited.
     If vocab is given, then tokens that are not in vocab are replaced with OOV."""
-
-    # OPTIONAL SPEEDUP: You may want to modify this to integerize the
-    # tokens, using integerizer.py as in previous homeworks.
-    # In that case, redefine `Wordtype` from `str` to `int`.
-
-    # PYTHON NOTE: This function uses `yield` to return the tokens one at
-    # a time, rather than constructing the whole sequence and using
-    # `return` to return it.
-    #
-    # A function that uses `yield` is called a "generator."  As with other
-    # iterators, it computes new values only as needed.  The sequence is
-    # never fully constructed as an single object in memory.
-    #
-    # You can iterate over the yielded sequence, for example, like this:
-    #      for token in read_tokens(my_file, vocab):
-    #          process(token)
-    # Whenever the `for` loop needs another token, read_tokens magically picks up 
-    # where it left off and continues running until the next `yield` statement.
 
     with open(file) as f:
         for line in f:
@@ -164,35 +129,6 @@ class LanguageModel:
     def vocab_size(self) -> int:
         assert self.vocab is not None
         return len(self.vocab)
-
-    # We need to collect two kinds of n-gram counts.
-    # To compute p(z | xy) for a trigram xyz, we need c(xy) for the 
-    # denominator and c(yz) for the backed-off numerator.  Both of these 
-    # look like bigram counts ... but they are not quite the same thing!
-    #
-    # For a sentence of length N, we are iterating over trigrams xyz where
-    # the position of z falls in 1 ... N+1 (so z can be EOS but not BOS),
-    # and therefore
-    # the position of y falls in 0 ... N   (so y can be BOS but not EOS).
-    # 
-    # When we write c(yz), we are counting *events z* with *context* y:
-    #         c(yz) = |{i in [1, N]: w[i-1] w[i] = yz}|
-    # We keep these "event counts" in `event_count` and use them in the numerator.
-    # Notice that z=BOS is not possible (BOS is not a possible event).
-    # 
-    # When we write c(xy), we are counting *all events* with *context* xy:
-    #         c(xy) = |{i in [1, N]: w[i-2] w[i-1] = xy}|
-    # We keep these "context counts" in `context_count` and use them in the denominator.
-    # Notice that y=EOS is not possible (EOS cannot appear in the context).
-    #
-    # In short, c(xy) and c(yz) count the training bigrams slightly differently.  
-    # Likewise, c(y) and c(z) count the training unigrams slightly differently.
-    #
-    # Note: For bigrams and unigrams that don't include BOS or EOS -- which
-    # is most of them! -- `event_count` and `context_count` will give the
-    # same value.  So you could save about half the memory if you were
-    # careful to store those cases only once.  (How?)  That would make the
-    # code slightly more complicated, but would be worth it in a real system.
 
     def count_trigram_events(self, trigram: Trigram) -> None:
         """Record one token of the trigram and also of its suffixes (for backoff)."""
@@ -309,7 +245,6 @@ class AddLambdaLanguageModel(CountBasedLanguageModel):
         # over all values of typeZ will give 1, so sum_z p(z | ...) = 1
         # as is required for any probability function.
 
-
 class BackoffAddLambdaLanguageModel(AddLambdaLanguageModel):
     def __init__(self, vocab: Vocab, lambda_: float) -> None:
         super().__init__(vocab, lambda_)
@@ -327,106 +262,104 @@ class BackoffAddLambdaLanguageModel(AddLambdaLanguageModel):
          bigram_prob=(self.event_count[(y,z)] + self.lambda_ * V * unigram_prob) / (self.context_count[(y,)] + self.lambda_ * V)
          #trigram
          return (self.event_count[(x,y,z)] + self.lambda_ * V * bigram_prob) / (self.context_count[(x,y)] + self.lambda_ * V)
-    
-    
-    
-    
-    
-    
-    #     V=len(self.vocab_size) 
-        
-    #     #count for trigram (x,y,z)
-        
-    #     c_xyz =self.event_count[(x,y,z)]
-    #     c_xy= self.context_count[(x,y)] 
-    #     return (c_xyz + self.lambda_ * V * self.prob_bigram(y, z)) / (c_xy + self.lambda_ * V)
-        
-    
-    # def prob_bigram(self, y: Wordtype, z:Wordtype) -> float: 
-    #     V=len(self.vocab_size) 
-    #     c_yz=self.event_count[(y,z)]
-    #     c_y=self.context_count[(y,)]
-        
-    #     return (c_yz + self.lambda_ * V * self.prob_unigram(z)) / (c_y + self.lambda_ * V)
-    
-    # def prob_unigram(self, z: Wordtype) -> float:
-    #     V = len(self.vocab_size)
-    #     c_z= self.event_count[(z,)]
-    #     N = self.context_count[()]
-    #     return (c_z + self.lambda_) / (N + self.lambda_ * V) if N > 0 else 0.0
-    
-        # return super().prob(x, y, z)
-        # Don't forget the difference between the Wordtype z and the
-        # 1-element tuple (z,). If you're looking up counts,
-        # these will have very different counts!
+
+
+def load_lexicon(lexicon_file_path: str) -> dict:
+    embeddings = {}
+    with open(lexicon_file_path, 'r') as f:
+        for line in f:
+            parts = line.strip().split()  # split by space
+            word = parts[0]
+            vector = list(map(float, parts[1:]))
+            embeddings[word] = vector
+    return embeddings
 
 
 class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
     # Note the use of multiple inheritance: we are both a LanguageModel and a torch.nn.Module.
-    
     def __init__(self, vocab: Vocab, lexicon_file: Path, l2: float, epochs: int) -> None:
         super().__init__(vocab)
         if l2 < 0:
             raise ValueError("Negative regularization strength {l2}")
         self.l2: float = l2
+        self.epochs: int = epochs
 
-        # TODO: ADD CODE TO READ THE LEXICON OF WORD VECTORS AND STORE IT IN A USEFUL FORMAT.
-        self.dim: int = 99999999999  # TODO: SET THIS TO THE DIMENSIONALITY OF THE VECTORS
-
+        self.embeddings = {word: torch.tensor(vector) for word, vector in load_lexicon(str(lexicon_file)).items()}
+        some_word = list(self.embeddings.keys())[1] #next__iter__ returns the next item from the iterator
+        # print(f"Debug: the value of some word is {self.embeddings[some_word]}")  # Debugging line
+        
+        self.dim = self.embeddings[some_word].size(0)
         # We wrap the following matrices in nn.Parameter objects.
         # This lets PyTorch know that these are parameters of the model
         # that should be listed in self.parameters() and will be
         # updated during training.
-        #
         # We can also store other tensors in the model class,
         # like constant coefficients that shouldn't be altered by
         # training, but those wouldn't use nn.Parameter.
+        
         self.X = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
         self.Y = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
+              
+    def compute_Z(self, x_emb: torch.Tensor, y_emb: torch.Tensor) -> torch.Tensor:
+        """
+        Compute the normalization constant Z(xy) using vectorized operations for speedup.
+        x_emb and y_emb are the embeddings for words x and y.
+        """
 
+        E = torch.stack(list(self.embeddings.values())[1:]) # Stack all word vectors to create the matrix E
+        part1 = x_emb @ self.X @ E.T  # Compute x^T X E using matrix-matrix multiplication
+        part2 = y_emb @ self.Y @ E.T  # Compute y^T Y E using matrix-matrix multiplication
+        
+        Z_xy = torch.exp(part1 + part2).sum()  # Take the exponent and sum up
+        return Z_xy
+        
     def log_prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
         """Return log p(z | xy) according to this language model."""
-        # https://pytorch.org/docs/stable/generated/torch.Tensor.item.html
-        return self.log_prob_tensor(x, y, z).item()
+        x_emb= self.embeddings.get(x, self.embeddings["OOL"])
+        y_emb =self.embeddings.get(y, self.embeddings.get("OOL"))
+        z_emb = self.embeddings.get(z, self.embeddings.get("OOL"))
+    
+
+        #compute the log probability using the formula given in formula 
+        
+        numerator = torch.exp(x_emb @self.X @y_emb + y_emb @self.Y@z_emb)
+        #now compute Z(xy) the partition function 
+        Z_xy =self.compute_Z(x_emb, y_emb) 
+        log_prob = torch.log(numerator/Z_xy) 
+        return log_prob.item() #item() returns the value of this tensor as a standard Python number. This only works for tensors with one element.
 
     @typechecked
     def log_prob_tensor(self, x: Wordtype, y: Wordtype, z: Wordtype) -> TorchScalar:
         """Return the same value as log_prob, but stored as a tensor."""
+        #now the values x,y,z is not in terms of tensors. 
+        #we need to convert them to tensors 
         
-        # As noted below, it's important to use a tensor for training.
-        # Most of your intermediate quantities, like logits below, will
-        # also be stored as tensors.  (That is normal in PyTorch, so it
-        # would be weird to append `_tensor` to their names.  We only
-        # appended `_tensor` to the name of this method to distinguish
-        # it from the class's general `log_prob` method.)
-
-        # TODO: IMPLEMENT ME!
-        # This method should call the logits helper method.
-        # You are free to define other helper methods too.
-        #
+        
+        logit_for_trigram = self.logits(x,y,z) 
+        #Z needs tenors to compute 
+        x_emb = self.embeddings.get(x, self.embeddings.get("OOL"))
+        y_emb= self.embeddings.get(y, self.embeddings.get("OOL"))
+        # z_emb = self.embeddings.get(z, self.embeddings.get("OOL"))
+        Z= self.compute_Z(x_emb,y_emb) 
+        log_prob = logit_for_trigram - torch.log(Z) 
+        #normalize we need to consider log of the partition function
         # Be sure to use vectorization over the vocabulary to
         # compute the normalization constant Z, or this method
         # will be very slow. Some useful functions of pytorch that could
         # be useful are torch.logsumexp and torch.log_softmax.
-        raise NotImplementedError("Implement me!")
+        return log_prob 
 
     def logits(self, x: Wordtype, y: Wordtype, z: Wordtype) -> torch.Tensor:
         """Return a vector of the logs of the unnormalized probabilities, f(xyz) * θ.
         These are commonly known as "logits" or "log-odds": the values that you 
         exponentiate and renormalize in order to get a probability distribution."""
-        # TODO: IMPLEMENT ME!
-        # Don't forget that you can create additional methods
-        # that you think are useful, if you'd like.
-        # It's cleaner than making this function massive.
-        #
-        # The operator `@` is a nice way to write matrix multiplication:
-        # you can write J @ K as shorthand for torch.mul(J, K).
-        # J @ K looks more like the usual math notation.
-        #
-        # The return type, TorchScalar, represents a torch.Tensor scalar.
-        # See Question 7 in INSTRUCTIONS.md for more info about fine-grained 
-        # type annotations for Tensors.
-        raise NotImplementedError("Implement me!")
+        x_emb = self.embeddings.get(x, self.embeddings["OOL"])
+        y_emb = self.embeddings.get(y, self.embeddings.get("OOL"))
+        z_emb = self.embeddings.get(z, self.embeddings.get("OOL"))
+        logit_xz= x_emb @ self.X @ z_emb.T 
+        logit_yz = y_emb @ self.Y @ z_emb.T
+        logit=logit_xz+logit_yz
+        return logit
 
     def train(self, file: Path):    # type: ignore
         
@@ -436,8 +369,9 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         ### However, we won't be trying to use the latter method.
         ### The `type: ignore` comment above tells the type checker to ignore this inconsistency.
         
+        
         # Optimization hyperparameters.
-        gamma0 = 0.1  # initial learning rate
+        gamma0 = 0.01  # initial learning rate, this is from 7b) 
 
         # This is why we needed the nn.Parameter above.
         # The optimizer needs to know the list of parameters
@@ -450,68 +384,36 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
 
         N = num_tokens(file)
         log.info("Start optimizing on {N} training tokens...")
+        
+        t=0 #initialize the number of updates so far. 
+        for e in range(self.epochs):
+            #loop over traigrams in the training data
+            F_epoch = 0.0
 
-        #####################
-        # TODO: Implement your SGD here by taking gradient steps on a sequence
-        # of training examples.  Here's how to use PyTorch to make it easy:
-        #
-        # To get the training examples, you can use the `read_trigrams` function
-        # we provided, which will iterate over all N trigrams in the training
-        # corpus.  (Its use is illustrated in fileprob.py.)
-        #
-        # For each successive training example i, compute the stochastic
-        # objective F_i(θ).  This is called the "forward" computation. Don't
-        # forget to include the regularization term. Part of F_i(θ) will be the
-        # log probability of training example i, which the helper method
-        # log_prob_tensor computes.  It is important to use log_prob_tensor
-        # (as opposed to log_prob which returns float) because torch.Tensor
-        # is an object with additional bookkeeping that tracks e.g. the gradient
-        # function for backpropagation as well as accumulated gradient values
-        # from backpropagation.
-        #
-        # To get the gradient of this objective (∇F_i(θ)), call the `backward`
-        # method on the number you computed at the previous step.  This invokes
-        # back-propagation to get the gradient of this number with respect to
-        # the parameters θ.  This should be easier than implementing the
-        # gradient method from the handout.
-        #
-        # Finally, update the parameters in the direction of the gradient, as
-        # shown in Algorithm 1 in the reading handout.  You can do this `+=`
-        # yourself, or you can call the `step` method of the `optimizer` object
-        # we created above.  See the reading handout for more details on this.
-        #
-        # For the EmbeddingLogLinearLanguageModel, you should run SGD
-        # optimization for the given number of epochs and then stop.  You might 
-        # want to print progress dots using the `show_progress` method defined above.  
-        # Even better, you could show a graphical progress bar using the tqdm module --
-        # simply iterate over
-        #     tqdm.tqdm(read_trigrams(file), total=N*epochs)
-        # instead of iterating over
-        #     read_trigrams(file)
+            for i, trigram in enumerate(tqdm(read_trigrams(file, self.vocab), total=N)): # To get the training examples, you can use the `read_trigrams` function
+                gamma = gamma0/(1+gamma0*2*self.l2*t/N) #current step size
+                x,y,z=trigram
+                #compute the forward 
+                log_prob = self.log_prob_tensor(x,y,z)  #need tensor for bookkeeping instead of float 
+                Fi_theta = log_prob - self.l2*(self.X.norm()+self.Y.norm())#For each successive training example i, compute the stochastic
+                Fi_theta = - Fi_theta # we want to maximize Fi_theta, but SGD minimizes, so we negate it
+                #compuate thegradients by back propagation 
+                Fi_theta.backward()  
+                
+                optimizer.step()  #, update the parameters in the direction of the gradient via step method
+                optimizer.zero_grad() 
+                
+                t+=1 #increment the number of updates so far 
+                F_epoch += Fi_theta.item()
+            log.info("done optimizing.")
+            print(f"epoch {e+1}: F = {F_epoch/N}") #print the value of F after each epoch
+            # print("Model parameters:", self.X, self.Y)
+
+            
+      
         #####################
 
         log.info("done optimizing.")
-
-        # So how does the `backward` method work?
-        #
-        # As Python sees it, your parameters and the values that you compute
-        # from them are not actually numbers.  They are `torch.Tensor` objects.
-        # A Tensor may represent a numeric scalar, vector, matrix, etc.
-        #
-        # Every Tensor knows how it was computed.  For example, if you write `a
-        # = b + exp(c)`, PyTorch not only computes `a` but also stores
-        # backpointers in `a` that remember how the numeric value of `a` depends
-        # on the numeric values of `b` and `c`.  In turn, `b` and `c` have their
-        # own backpointers that remember what they depend on, and so on, all the
-        # way back to the parameters.  This is just like the backpointers in
-        # parsing!
-        #
-        # Every Tensor has a `backward` method that computes the gradient of its
-        # numeric value with respect to the parameters, using "back-propagation"
-        # through this computation graph.  In particular, once you've computed
-        # the forward quantity F_i(θ) as a tensor, you can trace backwards to
-        # get its gradient -- i.e., to find out how rapidly it would change if
-        # each parameter were changed slightly.
 
 
 class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
