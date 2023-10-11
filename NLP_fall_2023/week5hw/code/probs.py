@@ -286,27 +286,51 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
             raise ValueError("Negative regularization strength {l2}")
         self.l2: float = l2
         self.epochs: int = epochs
+        self.vocab_dict = {word: i for i, word in enumerate(self.vocab)}
 
-        all_embeddings = load_lexicon(str(lexicon_file)) #load the lexicon file 
-        self.embeddings = {word: torch.tensor(vector) for word, vector in all_embeddings.items() if word in vocab} 
+        self.embeddings = {word: torch.tensor(vector) for word, vector in load_lexicon(str(lexicon_file)).items() if word in vocab} 
         
+        self.embeddings["OOL"] = torch.tensor(load_lexicon(str(lexicon_file))["OOL"])
+        self.vocab_values_stack = torch.stack([self.get_embedding(word) for word in self.vocab_dict])  # New line: store the embeddings for all "z"
+
          # Add the "OOL" vector if it exists in all_embeddings
-        if "OOL" in all_embeddings:
-            self.embeddings["OOL"] = torch.tensor(all_embeddings["OOL"])
-        some_word = list(self.embeddings.keys())[1] #next__iter__ returns the next item from the iterator
-        # print(f"Debug: the value of some word is {self.embeddings[some_word]}")  # Debugging line
         
+        some_word = list(self.embeddings.keys())[1] #next__iter__ returns the next item from the iterator
+    
         self.dim = self.embeddings[some_word].size(0) #dimension of parameter matrices
         self.X = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
         self.Y = nn.Parameter(torch.zeros((self.dim, self.dim)), requires_grad=True)
-              
+#We will add a new method 
+
+    def get_embedding(self, word: Wordtype) -> torch.Tensor:
+        """Return the embedding for word, or the OOL embedding if word is not in the vocabulary."""
+        return self.embeddings.get(word, self.embeddings["OOL"]) 
+    def logits(self, x: Wordtype, y: Wordtype) -> torch.Tensor:
+        """Calculate logits for all vocabulary given context words x and y"""
+        # Initialize vector to store logits
+        logit_vec = torch.zeros(len(self.vocab))
+
+        # Get embeddings for x and y
+        x_emb = self.get_embedding(x)
+        y_emb = self.get_embedding(y)
+        #maybe can create this as a 
+        # Create a stack of all z word embeddings from vocab
+        
+        # Calculate logits
+        z_vecs=self.vocab_values_stack
+        logit_vec = (x_emb @ self.X @ z_vecs.T) + (y_emb @ self.Y @ z_vecs.T)
+        
+        return logit_vec
+    
+    
+    #normalization
     def compute_Z(self, x_emb: torch.Tensor, y_emb: torch.Tensor) -> torch.Tensor:
         """
         Compute the normalization constant Z(xy) using vectorized operations for speedup.
         x_emb and y_emb are the embeddings for words x and y.
         """
 
-        E = torch.stack(list(self.embeddings.values())[1:]) # Stack all word vectors to create the matrix E
+        E = self.vocab_values_stack # Stack all word vectors to create the matrix E
         part1 = x_emb @ self.X @ E.T  # Compute x^T X E using matrix-matrix multiplication
         part2 = y_emb @ self.Y @ E.T  # Compute y^T Y E using matrix-matrix multiplication
         
@@ -315,13 +339,9 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
         
     def log_prob(self, x: Wordtype, y: Wordtype, z: Wordtype) -> float:
         """Return log p(z | xy) according to this language model."""
-        x_emb= self.embeddings.get(x, self.embeddings["OOL"])
-        y_emb =self.embeddings.get(y, self.embeddings.get("OOL"))
-        z_emb = self.embeddings.get(z, self.embeddings.get("OOL"))
-    
-
-        #compute the log probability using the formula given in formula 
-        
+        x_emb= self.get_embedding(x)
+        y_emb= self.get_embedding(y)
+        z_emb= self.get_embedding(z)
         numerator = torch.exp(x_emb @self.X @y_emb + y_emb @self.Y@z_emb)
         #now compute Z(xy) the partition function 
         Z_xy =self.compute_Z(x_emb, y_emb) 
@@ -330,36 +350,13 @@ class EmbeddingLogLinearLanguageModel(LanguageModel, nn.Module):
 
     @typechecked
     def log_prob_tensor(self, x: Wordtype, y: Wordtype, z: Wordtype) -> TorchScalar:
-        """Return the same value as log_prob, but stored as a tensor."""
-        #now the values x,y,z is not in terms of tensors. 
-        #we need to convert them to tensors 
-        
-        
-        logit_for_trigram = self.logits(x,y,z) 
-        #Z needs tenors to compute 
-        x_emb = self.embeddings.get(x, self.embeddings.get("OOL"))
-        y_emb= self.embeddings.get(y, self.embeddings.get("OOL"))
-        # z_emb = self.embeddings.get(z, self.embeddings.get("OOL"))
-        Z= self.compute_Z(x_emb,y_emb) 
-        log_prob = logit_for_trigram - torch.log(Z) 
-        #normalize we need to consider log of the partition function
-        # Be sure to use vectorization over the vocabulary to
-        # compute the normalization constant Z, or this method
-        # will be very slow. Some useful functions of pytorch that could
-        # be useful are torch.logsumexp and torch.log_softmax.
-        return log_prob 
-
-    def logits(self, x: Wordtype, y: Wordtype, z: Wordtype) -> torch.Tensor:
-        """Return a vector of the logs of the unnormalized probabilities, f(xyz) * θ.
-        These are commonly known as "logits" or "log-odds": the values that you 
-        exponentiate and renormalize in order to get a probability distribution."""
-        x_emb = self.embeddings.get(x, self.embeddings["OOL"])
-        y_emb = self.embeddings.get(y, self.embeddings.get("OOL"))
-        z_emb = self.embeddings.get(z, self.embeddings.get("OOL"))
-        logit_xz= x_emb @ self.X @ z_emb.T 
-        logit_yz = y_emb @ self.Y @ z_emb.T
-        logit=logit_xz+logit_yz
-        return logit
+        """Return the same value as log_prob, but stored as a tensor."""        
+        logit_vec = self.logits(x,y) #compute the logits
+        log_pxyz = logit_vec[self.vocab_dict.get(z)]
+        x_emb= self.get_embedding(x)
+        y_emb= self.get_embedding(y)
+        log_z=torch.logsumexp(logit_vec, dim=0)  #normalize we need to consider log of the partition function
+        return log_pxyz-log_z #return the log of the probability of the trigram
 
     def train(self, file: Path):    # type: ignore
          ### it overrides not only `LanguageModel.train` (as desired) but also `nn.Module.train` (which has a different type). 
@@ -430,3 +427,5 @@ class ImprovedLogLinearLanguageModel(EmbeddingLogLinearLanguageModel):
     #   as `torch.optim.Adam` (https://pytorch.org/docs/stable/optim.html).
     #
     pass
+
+
